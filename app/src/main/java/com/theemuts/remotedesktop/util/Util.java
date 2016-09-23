@@ -81,7 +81,9 @@ public class Util {
     }
 
     public static void shutdownExecutor(ExecutorService executor, Future<?> task) {
-        if(!(task.isDone()|task.isCancelled())) task.cancel(true);
+        if(task != null) {
+            if (!(task.isDone() | task.isCancelled())) task.cancel(true);
+        }
         executor.shutdown();
 
         try {

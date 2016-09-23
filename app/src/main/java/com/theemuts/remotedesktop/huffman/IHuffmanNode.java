@@ -6,15 +6,15 @@ import com.theemuts.remotedesktop.exception.InvalidHuffmanCodeException;
  * Created by thomas on 17-8-16.
  */
 public interface IHuffmanNode extends Comparable<IHuffmanNode> {
-    public boolean isLeaf();
-    public int getValue();
-    public short getLength();
-    public int getIndex() throws InvalidHuffmanCodeException;
-    public boolean adjacent(IHuffmanNode node);
-    public boolean isLonger(IHuffmanNode node);
-    public IHuffmanNode getLeft() throws InvalidHuffmanCodeException;
-    public IHuffmanNode getRight() throws InvalidHuffmanCodeException;
-    public IHuffmanNode move(boolean direction) throws InvalidHuffmanCodeException;
-    public int getSize() throws InvalidHuffmanCodeException;
-    public int getZeroRun() throws InvalidHuffmanCodeException;
+    boolean isLeaf();
+    int getValue();
+    short getLength();
+    int getIndex() throws InvalidHuffmanCodeException;
+    boolean adjacent(IHuffmanNode node);
+    boolean isLonger(IHuffmanNode node);
+    IHuffmanNode getLeft() throws InvalidHuffmanCodeException;
+    IHuffmanNode getRight() throws InvalidHuffmanCodeException;
+    IHuffmanNode move(boolean direction) throws InvalidHuffmanCodeException;
+    int getSize() throws InvalidHuffmanCodeException;
+    int getZeroRun() throws InvalidHuffmanCodeException;
 }

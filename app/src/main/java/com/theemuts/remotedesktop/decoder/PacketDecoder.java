@@ -255,9 +255,7 @@ public class PacketDecoder {
     }
 
     private void decodeAC() throws InvalidHuffmanCodeException {
-        int size;
-        short value;
-        short value2;
+        int index, size;
 
         while (inBlockIndex <= 63) {
             parseLargeZeroRun();
@@ -269,18 +267,10 @@ public class PacketDecoder {
             moveUntilLeaf();
 
             inBlockIndex += pointer.getZeroRun();
-            int index = 192 * blockIndex + 64 * component + UNZIGZAG[inBlockIndex];
+            index = 192 * blockIndex + 64 * component + UNZIGZAG[inBlockIndex];
             size = pointer.getSize();
 
-            if (index == 208) {
-                value = getBits(size);
-                value2 = decodeValue(value, size);
-            } else {
-                value = getBits(size);
-                value2 = decodeValue(value, size);
-            }
-
-            yCbCrData[index] = value2;
+            yCbCrData[index] = decodeValue(getBits(size), size);
             inBlockIndex += 1;
 
             resetPointerToRoot();

@@ -121,7 +121,7 @@ public class ConnectionManager {
             }
 
             System.out.println("Kill receiver thread");
-        };
+        }
 
         private void startReceiver() {
             try {

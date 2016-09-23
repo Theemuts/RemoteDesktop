@@ -25,7 +25,7 @@ import java.util.concurrent.Future;
 
 public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
     private static final int FRAME_DURATION = 100;
-    private static final long SLEEP_DURATION = 5;
+    private static final long SLEEP_DURATION = 20;
 
     private static final int WIDTH = 640;
     private static final int CANVAS_WIDTH = 1280;
@@ -88,7 +88,7 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
         }
 
         executor = Executors.newSingleThreadExecutor();
-        //handlerTask = executor.submit(new BitmapHandler());
+        handlerTask = executor.submit(new BitmapHandler());
     }
 
     // Init video view
@@ -109,7 +109,7 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
         }
 
         bmp.setPixels(data, 0, WIDTH, 0, 0, WIDTH, HEIGHT);
-        //handlerTask = executor.submit(new BitmapHandler());
+        handlerTask = executor.submit(new BitmapHandler());
     }
 
     @Override
@@ -173,14 +173,15 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
         public void run() {
             handler = this;
             newDataQueue = new ConcurrentLinkedDeque<>();
+            lastRender = System.currentTimeMillis();
 
                 while (!(shutdown|Thread.currentThread().isInterrupted())) {
                     try {
                         timeDiff = System.currentTimeMillis() - lastRender - FRAME_DURATION;
 
                         if (allowRender & newData & timeDiff >= 0) {
+                            lastRender = System.currentTimeMillis();
                             redraw();
-                            lastRender = System.currentTimeMillis() - timeDiff;
                             timeDiff = -FRAME_DURATION;
                             newData = false;
                         }
@@ -196,14 +197,17 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
 
                             try {
                                 if (timeDiff >= -SLEEP_DURATION & timeDiff < 0) {
+                                    System.out.println(-timeDiff);
                                     Thread.sleep(-timeDiff);
                                 } else if (timeDiff < -SLEEP_DURATION) {
+                                    Thread.sleep(SLEEP_DURATION);
+                                } else if(!newData) {
                                     Thread.sleep(SLEEP_DURATION);
                                 }
                             } catch (InterruptedException e) {
                             }
                         }
-                    } catch (Exception e) {
+                    }  catch (Exception e) {
                         e.printStackTrace();
                     }
                 }

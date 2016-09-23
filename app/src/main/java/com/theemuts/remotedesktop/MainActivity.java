@@ -103,7 +103,7 @@ public class MainActivity extends AppCompatActivity {
         screenInfoList.clear();
 
         for (ScreenInfo sc: newInfo) {
-            this.screenInfoList.add(sc);
+            screenInfoList.add(sc);
         }
     }
 

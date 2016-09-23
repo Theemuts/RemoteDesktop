@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
  * Created by thomas on 4-9-16.
  */
 public class DecoderManager {
-    private static final int N_DECODERS = 4;
+    private static final int N_DECODERS = 2;
     private static final DecoderManager manager = new DecoderManager();
 
     /*
