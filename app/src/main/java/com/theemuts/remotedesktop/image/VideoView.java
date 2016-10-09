@@ -15,6 +15,7 @@ import com.theemuts.remotedesktop.decoder.DecodedPacket;
 import com.theemuts.remotedesktop.util.Util;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -25,13 +26,14 @@ import java.util.concurrent.Future;
 
 public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
     private static final int FRAME_DURATION = 100;
-    private static final long SLEEP_DURATION = 20;
+    private static final long SLEEP_DURATION = 5;
 
     private static final int WIDTH = 640;
     private static final int CANVAS_WIDTH = 1280;
     private static final int HEIGHT = 368;
     private static final int PIXELS = WIDTH*HEIGHT;
     private static final int N_BLOCKS = PIXELS / 256;
+    private static final int N_BLOCKS_X = WIDTH / 16;
 
     private SurfaceHolder holder;
     private Bitmap bmp;
@@ -40,7 +42,7 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
     private Future<?> handlerTask;
 
     private ExecutorService executor = Executors.newSingleThreadExecutor();
-    private boolean shutdown;
+    private volatile boolean shutdown;
     private boolean heightSet = false;
 
     private int[] data = new int[PIXELS];
@@ -69,24 +71,15 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
     }
 
     public void add(DecodedPacket p) {
-        if (null != handler) handler.add(p);
+        handler.add(p);
     }
 
     public void restartHandler() {
+        shutdown = true;
+
+        Util.shutdownExecutor(executor, handlerTask);
+
         shutdown = false;
-
-        if(handlerTask != null) {
-            if(!(handlerTask.isCancelled() | handlerTask.isDone())) {
-                handlerTask.cancel(true);
-            }
-        }
-
-        if(executor != null) {
-            if(!(executor.isShutdown() | executor.isTerminated())) {
-                executor.shutdownNow();
-            }
-        }
-
         executor = Executors.newSingleThreadExecutor();
         handlerTask = executor.submit(new BitmapHandler());
     }
@@ -110,6 +103,21 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
 
         bmp.setPixels(data, 0, WIDTH, 0, 0, WIDTH, HEIGHT);
         handlerTask = executor.submit(new BitmapHandler());
+    }
+
+    public void reset() {
+        handler.clear();
+
+        for (int i = 0; i < PIXELS/256; i++) {
+            data[i] = 0xFFFFFFFF;
+            currentVersion[i] = -1;
+        }
+
+        for (int i = PIXELS/256; i < PIXELS; i++) {
+            data[i] = i*8;
+        }
+
+        handler.redraw();
     }
 
     @Override
@@ -160,57 +168,59 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
     }
 
     private class BitmapHandler implements Runnable {
-        private ConcurrentLinkedDeque<DecodedPacket> newDataQueue;
+        private ConcurrentLinkedQueue<DecodedPacket> newDataQueue;
         private DecodedPacket block;
 
-        private boolean allowRender = false;
         private boolean newData = false;
         private long lastRender = 0;
         private long timeDiff = 0;
 
+        private long firstRender = 0;
+
 
         @Override
         public void run() {
+            System.out.println("Start bmp handler");
             handler = this;
-            newDataQueue = new ConcurrentLinkedDeque<>();
+            newDataQueue = new ConcurrentLinkedQueue<>();
             lastRender = System.currentTimeMillis();
 
-                while (!(shutdown|Thread.currentThread().isInterrupted())) {
-                    try {
-                        timeDiff = System.currentTimeMillis() - lastRender - FRAME_DURATION;
+             while (!(shutdown || Thread.currentThread().isInterrupted())) {
+                 try {
+                     if(firstRender == 0 && !newData)
+                         lastRender = System.currentTimeMillis();
 
-                        if (allowRender & newData & timeDiff >= 0) {
-                            lastRender = System.currentTimeMillis();
-                            redraw();
-                            timeDiff = -FRAME_DURATION;
-                            newData = false;
-                        }
+                     timeDiff = System.currentTimeMillis() - lastRender - FRAME_DURATION;
 
-                        allowRender = false;
-                        block = newDataQueue.poll();
+                     if (newData && timeDiff >= 0) {
+                         lastRender = System.currentTimeMillis();
+                         if(firstRender == 0) firstRender = lastRender;
+                         redraw();
+                         timeDiff = -FRAME_DURATION;
+                         newData = false;
+                     }
 
-                        if (null != block) {
-                            newData = true;
-                            updateBitmap(block);
-                        } else {
-                            allowRender = true;
+                     block = newDataQueue.poll();
 
-                            try {
-                                if (timeDiff >= -SLEEP_DURATION & timeDiff < 0) {
-                                    System.out.println(-timeDiff);
-                                    Thread.sleep(-timeDiff);
-                                } else if (timeDiff < -SLEEP_DURATION) {
-                                    Thread.sleep(SLEEP_DURATION);
-                                } else if(!newData) {
-                                    Thread.sleep(SLEEP_DURATION);
-                                }
-                            } catch (InterruptedException e) {
-                            }
-                        }
-                    }  catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
+                     if (null != block) {
+                         newData = true;
+                         updateBitmap(block);
+                     } else {
+                         try {
+                             if (timeDiff >= -SLEEP_DURATION & timeDiff < 0) {
+                                 Thread.sleep(-timeDiff);
+                             } else if (timeDiff < -SLEEP_DURATION) {
+                                 Thread.sleep(SLEEP_DURATION);
+                             } else if(!newData) {
+                                 Thread.sleep(SLEEP_DURATION);
+                             }
+                         } catch (InterruptedException e) {
+                         }
+                     }
+                 }  catch (Exception e) {
+                     e.printStackTrace();
+                 }
+             }
 
             System.out.println("Exit bmp handler");
         }
@@ -218,41 +228,42 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
         public void add(DecodedPacket p) {
             newDataQueue.add(p);
         }
+        public void clear() {
+            newDataQueue.clear();
+        }
 
         private void updateBitmap(DecodedPacket packet) {
-            int index, nBlocksX, blockX, blockY, offset, offset0, width, timestamp, currentTimestamp;
-
+            int index, blockX, blockY, offset, offset0, offset1, timestamp, currentTimestamp;
             timestamp = packet.getTimestamp();
 
             for(int[]decodedPixels: packet.getDecodedData()) {
                 index = decodedPixels[256];
                 currentTimestamp = currentVersion[index];
 
-                if(currentTimestamp < timestamp) {
-                    nBlocksX = WIDTH / 16;
-                    blockX = index % nBlocksX;
-                    blockY = index / nBlocksX;
+                if(currentTimestamp < timestamp || timestamp == 1) {
+                    blockX = index % N_BLOCKS_X;
+                    blockY = index / N_BLOCKS_X;
 
                     offset0 = 16 * (blockY * WIDTH + blockX);
 
-                    // TODO: refactor data order after IDCT...
                     for (int block = 0; block < 4; block++) {
-                        for (int row = 0; row < 8; row++) {
-                            switch (block) {
-                                case 0:
-                                    offset = offset0 +  row * WIDTH;
-                                    break;
-                                case 1:
-                                    offset = offset0 + row * WIDTH + 8;
-                                    break;
-                                case 2:
-                                    offset = offset0 + (row + 8) * WIDTH;
-                                    break;
-                                default:
-                                    offset = offset0 + (row + 8) * WIDTH + 8;
-                                    break;
-                            }
+                        switch (block) {
+                            case 0:
+                                offset1 = offset0;
+                                break;
+                            case 1:
+                                offset1 = offset0 + 8;
+                                break;
+                            case 2:
+                                offset1 = offset0 + (8 * WIDTH);
+                                break;
+                            default:
+                                offset1 = offset0 + (WIDTH + 1) * 8;
+                                break;
+                        }
 
+                        for (int row = 0; row < 8; row++) {
+                            offset = offset1 +  row * WIDTH;
 
                             for (int i = 0; i < 8; i++) {
                                 data[offset + i] = decodedPixels[i + 8 * row + 64 * block];

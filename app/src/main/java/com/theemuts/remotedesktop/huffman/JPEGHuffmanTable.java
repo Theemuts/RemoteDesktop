@@ -17,6 +17,8 @@ package com.theemuts.remotedesktop.huffman;
  *  limitations under the License.
  */
 
+import com.theemuts.remotedesktop.util.DecodeUtil;
+
 /**
  * The JPEGHuffmanTable class represents a single JPEG Huffman table. It
  * contains the standard tables from the JPEG specification.
@@ -24,6 +26,11 @@ package com.theemuts.remotedesktop.huffman;
  * @since Android 1.0
  */
 public class JPEGHuffmanTable {
+
+
+
+
+    private static final char MASK = 0xFFFF;
     /**
      * The standard DC luminance Huffman table .
      */
@@ -118,6 +125,17 @@ public class JPEGHuffmanTable {
      * The values.
      */
     private int[] values;
+
+    /**
+     * The size.
+     */
+    private int size;
+
+    /**
+     * The decoder lookup table.
+     */
+    private int lookupTable[];
+
     /**
      * Instantiates a new jPEG huffman table.
      *
@@ -131,8 +149,68 @@ public class JPEGHuffmanTable {
         // Could be also used for copying of the existing tables
         this.lengths = lengths;
         this.values = values;
-        if(lengths.length != values.length) {
+        size = values.length;
+
+        if(lengths.length != size) {
             throw new RuntimeException();
+        }
+
+        short huffmanCodeLength;
+        char value;
+        int lookupTableValue;
+
+        lookupTable = new int[65536];
+
+        for (int i = 0; i < size; i++) {
+            huffmanCodeLength = lengths[i];
+            huffmanCodeLength--;
+
+            if(huffmanCodeLength < 16) {
+                value = (char) values[i];
+                value <<= (15 - huffmanCodeLength);
+
+                // ((20 bits 0) | (4 bits huff length) | (4 bits zero run) | (4 bits encoded value size))
+                lookupTableValue = huffmanCodeLength;
+                lookupTableValue <<= 8;
+                lookupTableValue |= i;
+
+                lookupTable[value] = lookupTableValue;
+            }
+        }
+
+        int max = 0xFFFF;
+        int mask = max;
+        int previous = 0;
+        int codeLength = 0;
+        int zeroRunLength = 0;
+        int encodedLength = 0;
+        boolean setValue = false;
+
+        for (int i = 0; i < lookupTable.length; i++) {
+            if (lookupTable[i] != 0) {
+                previous = lookupTable[i];
+                codeLength = previous >>> 8;
+                encodedLength = previous & 0xF;
+                zeroRunLength = (previous & 0xF0) >> 4;
+
+                if (codeLength + encodedLength < 16) {
+                    setValue = true;
+                    mask = (int) (DecodeUtil.MASK_START[codeLength + 49] & DecodeUtil.MASK_END[15 - codeLength - encodedLength]);
+                } else {
+                    setValue = false;
+                }
+            }
+
+            if(setValue) {
+                // ((4 bits 0) | (4 bits encoded length) | (4 bits huff length) | (4 bits zero run) | (16 bits decoded value))
+                value = (char) ((i & mask) >>> (15 - codeLength - encodedLength));
+                value = DecodeUtil.decodeValue((short) value, encodedLength);
+
+                lookupTable[i] = encodedLength << 25 | (codeLength + encodedLength) << 20 | zeroRunLength << 16 | value;
+            } else {
+                // Negate so first bit is 1.
+                lookupTable[i] = ~previous;
+            }
         }
     }
 
@@ -175,5 +253,26 @@ public class JPEGHuffmanTable {
             sb.append(' ').append(value);
         }
         return sb.toString();
+    }
+
+    public int lookup(long buffer) {
+        int maybeResult = lookupTable[(int) (buffer >>> 48)];
+
+        if(maybeResult > 0)
+            return  maybeResult;
+
+        maybeResult = ~maybeResult;
+
+        // ((20 bits 0) | (4 bits huff length) | (4 bits zero run) | (4 bits encoded value size))
+        int huffmanCodeLength = maybeResult >> 8;
+        int zeroRun = (maybeResult >> 4) & 0xF;
+        int encodedValueLength = maybeResult & 0xF;
+
+        char value = (char) (buffer >> (63 - huffmanCodeLength - encodedValueLength));
+        value &= (MASK >> (16 - encodedValueLength));
+        value = DecodeUtil.decodeValue((short) value, encodedValueLength);
+
+        // ((4 bits 0) | (4 bits encoded length) | (4 bits huff length) | (4 bits zero run) | (16 bits decoded value))
+        return (encodedValueLength << 25) |(encodedValueLength + huffmanCodeLength) << 20 | zeroRun << 16 | value;
     }
 }

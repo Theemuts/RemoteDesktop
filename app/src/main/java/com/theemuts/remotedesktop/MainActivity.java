@@ -1,7 +1,5 @@
 package com.theemuts.remotedesktop;
 
-import android.app.Dialog;
-import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
@@ -9,16 +7,11 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
 import android.text.InputType;
 import android.view.MotionEvent;
-import android.view.SurfaceView;
 import android.view.View;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageView;
 import android.widget.RelativeLayout;
 
 import com.google.android.gms.appindexing.Action;
@@ -32,6 +25,9 @@ import com.theemuts.remotedesktop.util.ScreenInfo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -39,18 +35,22 @@ public class MainActivity extends AppCompatActivity {
     private static final ConnectionManager connectionManager = ConnectionManager.getInstance();
     private static final DecoderManager decoderManager = DecoderManager.getInstance();
 
-    //ImageView img;
+    EditText input;
 
     int currentScreen = 0;
     VideoView videoView;
-    Button screenButton;
-    Button segmentButton;
-    Button refreshButton;
-    Button keyboardButton;
 
+    SetScreenButton setScreenButton;
+    SetSegmentButton setSegmentButton;
+    RefreshButton refreshButton;
+    KeyboardButton keyboardButton;
 
-    Button connectButton;
-    Button quitButton;
+    QuitButton quitButton = new QuitButton();
+    ConnectButton connectButton = new ConnectButton();
+
+    private final ReentrantLock screenInfoReplyLock = new ReentrantLock();
+
+    private final Condition screenInfoExists = screenInfoReplyLock.newCondition();
 
     final static List<ScreenInfo> screenInfoList = new ArrayList<>(12);
 
@@ -77,34 +77,34 @@ public class MainActivity extends AppCompatActivity {
         client = new GoogleApiClient.Builder(this).addApi(AppIndex.API).build();
     }
 
-    private void initImage() {
-        /*img = (ImageView) findViewById(R.id.imageView);
+    public void setScreenInfoList(List<ScreenInfo> newInfo) {
+        screenInfoReplyLock.lock();
 
-        bitmapManager.setView(img);
-        bitmapManager.setBitmap();
-        img.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                StringBuilder b = new StringBuilder();
-                b.append(getAction(event.getActionMasked()));
-                b.append(": (");
-                b.append(event.getX());
-                b.append(", ");
-                b.append(event.getY());
-                b.append(")");
-                System.out.println(b.toString());
+        try {
+            screenInfoList.clear();
 
-                return true;
+            for (ScreenInfo sc : newInfo) {
+                screenInfoList.add(sc);
             }
-        });*/
+
+            screenInfoExists.signal();
+        } finally {
+            screenInfoReplyLock.unlock();
+        }
     }
 
-    public void setScreenInfoList(List<ScreenInfo> newInfo) {
-        screenInfoList.clear();
+    public void setConnectedQuitButtonListeners() {
+        quitButton.setAfterInitListener();
+    }
 
-        for (ScreenInfo sc: newInfo) {
-            screenInfoList.add(sc);
-        }
+    public void setConnectedConnectButtonListeners() {
+        connectButton.setAfterConnectListener();
+    }
+
+    public void setDisconnectedConnectButtonListeners() {
+
+        input = new EditText(this);
+        connectButton.setBeforeConnectListener();
     }
 
     private String getAction(int act) {
@@ -137,8 +137,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onStart() {
         super.onStart();
-        //img = (ImageView) findViewById(R.id.imageView);
-        //img.setImageResource(0);
 
         videoView.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -157,110 +155,29 @@ public class MainActivity extends AppCompatActivity {
         });
 
         connectionManager.setMainActivity(this);
-        videoView.restartHandler();
 
-        screenButton = (Button) findViewById(R.id.setScreenButton);
-        segmentButton  = (Button) findViewById(R.id.setSegmentButton);
-        refreshButton = (Button) findViewById(R.id.refreshImageButton);
-        keyboardButton = (Button) findViewById(R.id.openKeyboardButton);
-        connectButton = (Button) findViewById(R.id.connectButton);
-        quitButton = (Button) findViewById(R.id.quitButton);
+        setScreenButton = new SetScreenButton();
+        setScreenButton.create();
+        setScreenButton.setVisibility(View.INVISIBLE);
 
-        quitButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                finish();
-            }
-        });
+        setSegmentButton = new SetSegmentButton();
+        setSegmentButton.create();
+        setSegmentButton.setVisibility(View.INVISIBLE);
 
-        connectButton.setOnClickListener(new View.OnClickListener() {
-            String mText = "";
+        refreshButton = new RefreshButton();
+        refreshButton.create();
+        refreshButton.setVisibility(View.INVISIBLE);
 
-            @Override
-            public void onClick(View view) {
-                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-                builder.setTitle("Connect to IP");
+        keyboardButton = new KeyboardButton();
+        keyboardButton.create();
+        keyboardButton.setVisibility(View.INVISIBLE);
 
-                final EditText input = new EditText(MainActivity.this);
-                input.setText("192.168.1.133:9998:36492");
-                input.setInputType(InputType.TYPE_CLASS_PHONE);
-                builder.setView(input);
+        input = new EditText(this);
+        connectButton.create();
+        connectButton.setBeforeConnectListener();
 
-                builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        mText = input.getText().toString();
-                        try {
-                            ConnectionInfo con = new ConnectionInfo(mText);
-                            (new InitUDP()).execute(con).get();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-
-                        initImage();
-                    }
-                });
-                builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        dialog.cancel();
-                    }
-                });
-
-                builder.show();
-            }
-        });
-
-        screenButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                int nScreens = screenInfoList.size();
-                CharSequence[] screens = new CharSequence[nScreens];
-
-                for (int i = 0; i < nScreens; i++) {
-                    screens[i] = screenInfoList.get(i).getName();
-                }
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-
-                builder.setTitle(R.string.select_screen)
-                        .setItems(screens, new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                if (currentScreen != which) {
-                                    currentScreen = which;
-                                    (new SetScreen()).execute(which);
-                                }
-                            }
-                        });
-
-                builder.create().show();
-            }
-        });
-
-        segmentButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                ScreenInfo current = screenInfoList.get(currentScreen);
-                int nSegments = current.getnSegmentsX() * current.getnSegmentsY();
-                CharSequence[] segments = new CharSequence[nSegments];
-
-                for (int j = 0; j < current.getnSegmentsY(); j++) {
-                    for (int i = 0; i < current.getnSegmentsX(); i++) {
-                        segments[j * current.getnSegmentsX() + i] = "(" + i + ", " + j + ")";
-                    }
-                }
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-                builder.setTitle(R.string.select_segment)
-                        .setItems(segments, new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                (new SetSegment()).execute(which);
-                            }
-                        });
-
-                builder.create().show();
-            }
-        });
+        quitButton.create();
+        quitButton.setBeforeInitListener();
 
         // ATTENTION: This was auto-generated to implement the App Indexing API.
         // See https://g.co/AppIndexing/AndroidStudio for more information.
@@ -282,12 +199,6 @@ public class MainActivity extends AppCompatActivity {
     public void onStop() {
         super.onStop();
 
-        try {
-            (new QuitApp()).execute().get();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
         // ATTENTION: This was auto-generated to implement the App Indexing API.
         // See https://g.co/AppIndexing/AndroidStudio for more information.
         Action viewAction = Action.newAction(
@@ -304,7 +215,9 @@ public class MainActivity extends AppCompatActivity {
         client.disconnect();
     }
 
-    private class InitUDP extends AsyncTask<ConnectionInfo, Void, Integer> {
+
+
+    private class InitUDPAndDecoders extends AsyncTask<ConnectionInfo, Void, Integer> {
         protected Integer doInBackground(ConnectionInfo... params) {
             try {
                 connectionManager.init(params[0]);
@@ -315,37 +228,460 @@ public class MainActivity extends AppCompatActivity {
 
             return 0;
         }
+
+    }
+    private class Refresh extends AsyncTask<Void, Void, Void> {
+        protected Void doInBackground(Void... params) {
+            connectionManager.refreshImage();
+            return null;
+        }
     }
 
-    private class QuitApp extends AsyncTask<Void, Void, Void> {
-        protected Void doInBackground(Void... params) {
-            try {
-                connectionManager.shutdown();
-                decoderManager.shutdown();
-                //bitmapManager.shutdown();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+    private int screenNumber;
+
+
+    private class SetScreenAndSegment extends AsyncTask<Integer, Void, Void> {
+        protected Void doInBackground(Integer... params) {
+            connectionManager.setScreenAndSegment(params[0], params[1]);
+
+            return null;
+        }
+    }
+
+    private class ConnectButton {
+        Button connectButton;
+
+
+        private String mText = "";
+
+        private View.OnClickListener connectListener = new View.OnClickListener() {
+
+            @Override
+            public void onClick(View view) {
+                connectionAlert();
+            }
+        };
+
+        private View.OnClickListener disconnectListener = new View.OnClickListener() {
+
+            @Override
+            public void onClick(View view) {
+                // disconnect
+                try {
+                    (new StopStream()).execute().get();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    decoderManager.clear();
+                    videoView.restartHandler();
+                    videoView.reset();
+                }
+
+            }
+        };
+
+        private DialogInterface.OnClickListener connectOkListener = new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                mText = input.getText().toString();
+                screenInfoList.clear();
+
+                try {
+                    ConnectionInfo con = new ConnectionInfo(mText);
+                    (new InitUDPAndDecoders()).execute(con).get();
+
+                    screenInfoReplyLock.lock();
+
+                    try {
+                        while (screenInfoList.size() == 0)
+                            screenInfoExists.await();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    } finally {
+                        screenInfoReplyLock.unlock();
+                    }
+
+                    dialog.dismiss();
+                    screenAlert();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
+            }
+        };
+
+        private DialogInterface.OnClickListener cancelListener = new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.cancel();
+            }
+        };
+
+        private DialogInterface.OnClickListener screenListener = new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                screenNumber = which;
+
+                dialog.dismiss();
+                segmentAlert();
+            }
+        };
+
+        private DialogInterface.OnClickListener segmentListener = new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int segmentNumber) {
+                (new SetScreenAndSegment()).execute(screenNumber, segmentNumber);
+                dialog.dismiss();
+            }
+        };
+
+        public void create() {
+            connectButton = (Button) findViewById(R.id.connectButton);
+        }
+
+        public void setBeforeConnectListener() {
+            connectButton.post(new Runnable() {
+                @Override
+                public void run() {
+                    setScreenButton.setVisibility(View.INVISIBLE);
+                    setSegmentButton.setVisibility(View.INVISIBLE);
+                    refreshButton.setVisibility(View.INVISIBLE);
+                    keyboardButton.setVisibility(View.INVISIBLE);
+
+                    connectButton.setText("Connect");
+                    connectButton.setOnClickListener(connectListener);
+                }
+            });
+        }
+
+        public void setAfterConnectListener() {
+            connectButton.post(new Runnable() {
+                @Override
+                public void run() {
+                    setScreenButton.setVisibility(View.VISIBLE);
+                    setSegmentButton.setVisibility(View.VISIBLE);
+                    refreshButton.setVisibility(View.VISIBLE);
+                    //keyboardButton.setVisibility(View.VISIBLE); // Not visible yet, not implemented.
+
+                    connectButton.setText("Disconnect");
+                    connectButton.setOnClickListener(disconnectListener);
+                }
+            });
+        }
+
+        private void connectionAlert() {
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+            builder.setTitle("Connect to IP");
+
+            input.setText("192.168.1.133:9998:36492");
+            input.setInputType(InputType.TYPE_CLASS_PHONE);
+            builder.setView(input);
+
+            builder.setPositiveButton("OK", connectOkListener);
+            builder.setNegativeButton("Cancel", cancelListener);
+
+            builder.show();
+        }
+
+        private void screenAlert() {
+            int nScreens = screenInfoList.size();
+            CharSequence[] screens = new CharSequence[nScreens];
+
+            for (int i = 0; i < nScreens; i++) {
+                screens[i] = screenInfoList.get(i).getName();
             }
 
-            return null;
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+
+            builder.setTitle(R.string.select_screen)
+                   .setItems(screens, screenListener)
+                   .create()
+                   .show();
+        }
+
+        private void segmentAlert() {
+            ScreenInfo current = screenInfoList.get(currentScreen);
+            int nSegments = current.getnSegmentsX() * current.getnSegmentsY();
+            CharSequence[] segments = new CharSequence[nSegments];
+
+            for (int j = 0; j < current.getnSegmentsY(); j++) {
+                for (int i = 0; i < current.getnSegmentsX(); i++) {
+                    segments[j * current.getnSegmentsX() + i] = "(" + i + ", " + j + ")";
+                }
+            }
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+            builder.setTitle(R.string.select_segment)
+                   .setItems(segments, segmentListener)
+                   .create()
+                   .show();
+        }
+
+        private class StopStream extends AsyncTask<Void, Void, Void> {
+            protected Void doInBackground(Void... params) {
+                connectionManager.closeStream();
+                return null;
+            }
         }
     }
 
-    private class SetScreen extends AsyncTask<Integer, Void, Void> {
-        protected Void doInBackground(Integer... params) {
-            connectionManager.setScreen(params[0]);
+    private class SetScreenButton {
+        Button setScreenButton;
 
-            return null;
+        private View.OnClickListener screenListener = new View.OnClickListener() {
+
+            @Override
+            public void onClick(View view) {
+                screenAlert();
+            }
+        };
+
+        private DialogInterface.OnClickListener screenClickListener = new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                screenNumber = which;
+
+                dialog.dismiss();
+                segmentAlert();
+            }
+        };
+
+        private DialogInterface.OnClickListener segmentListener = new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int segmentNumber) {
+                (new SetScreenAndSegment()).execute(screenNumber, segmentNumber);
+                dialog.dismiss();
+            }
+        };
+
+        private void create() {
+            setScreenButton = (Button) findViewById(R.id.setScreenButton);
+            setScreenButton.setOnClickListener(screenListener);
+        }
+
+        private void setVisibility(int visibility) {
+            setScreenButton.setVisibility(visibility);
+        }
+
+        private void screenAlert() {
+            int nScreens = screenInfoList.size();
+            CharSequence[] screens = new CharSequence[nScreens];
+
+            for (int i = 0; i < nScreens; i++) {
+                screens[i] = screenInfoList.get(i).getName();
+            }
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+
+            builder.setTitle(R.string.select_screen)
+                    .setItems(screens, screenClickListener)
+                    .create()
+                    .show();
+        }
+
+        private void segmentAlert() {
+            ScreenInfo current = screenInfoList.get(currentScreen);
+            int nSegments = current.getnSegmentsX() * current.getnSegmentsY();
+            CharSequence[] segments = new CharSequence[nSegments];
+
+            for (int j = 0; j < current.getnSegmentsY(); j++) {
+                for (int i = 0; i < current.getnSegmentsX(); i++) {
+                    segments[j * current.getnSegmentsX() + i] = "(" + i + ", " + j + ")";
+                }
+            }
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+            builder.setTitle(R.string.select_segment)
+                    .setItems(segments, segmentListener)
+                    .create()
+                    .show();
         }
     }
 
-    private class SetSegment extends AsyncTask<Integer, Void, Void> {
-        protected Void doInBackground(Integer... params) {
-            connectionManager.setSegment(params[0]);
+    private class SetSegmentButton {
+        Button setSegmentButton;
 
-            return null;
+        private View.OnClickListener segmentListener = new View.OnClickListener() {
+
+            @Override
+            public void onClick(View view) {
+                segmentAlert();
+            }
+        };
+
+        private DialogInterface.OnClickListener segmentClickListener = new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int segmentNumber) {
+                (new SetScreenAndSegment()).execute(screenNumber, segmentNumber);
+                dialog.dismiss();
+            }
+        };
+
+        private void create() {
+            setSegmentButton = (Button) findViewById(R.id.setSegmentButton);
+        }
+
+        private void setVisibility(int visibility) {
+            setSegmentButton.setVisibility(visibility);
+            setSegmentButton.setOnClickListener(segmentListener);
+        }
+
+        private void segmentAlert() {
+            ScreenInfo current = screenInfoList.get(currentScreen);
+            int nSegments = current.getnSegmentsX() * current.getnSegmentsY();
+            CharSequence[] segments = new CharSequence[nSegments];
+
+            for (int j = 0; j < current.getnSegmentsY(); j++) {
+                for (int i = 0; i < current.getnSegmentsX(); i++) {
+                    segments[j * current.getnSegmentsX() + i] = "(" + i + ", " + j + ")";
+                }
+            }
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+            builder.setTitle(R.string.select_segment)
+                    .setItems(segments, segmentClickListener)
+                    .create()
+                    .show();
         }
     }
+
+    private class RefreshButton {
+        Button refreshButton;
+
+        private View.OnClickListener refreshListener = new View.OnClickListener() {
+            public void onClick(View view) {
+                (new Refresh()).execute();
+            }
+        };
+
+        private void create() {
+            refreshButton = (Button) findViewById(R.id.refreshImageButton);
+            refreshButton.setOnClickListener(refreshListener);
+        }
+
+        private void setVisibility(int visibility) {
+            refreshButton.setVisibility(visibility);
+        }
+    }
+
+    private class KeyboardButton {
+        Button keyboardButton;
+
+        private void create() {
+            keyboardButton = (Button) findViewById(R.id.openKeyboardButton);
+        }
+
+        private void setVisibility(int visibility) {
+            keyboardButton.setVisibility(visibility);
+        }
+    }
+
+    private class QuitButton {
+        Button quitButton;
+
+        DialogInterface.OnClickListener quitListener = new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+            try {
+                (new QuitApp()).execute();
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                finish();
+                dialog.dismiss();
+            }
+            }
+        };
+
+        DialogInterface.OnClickListener cancelistener = new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.cancel();
+            }
+        };
+
+        DialogInterface.OnClickListener exitListener = new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                try {
+                    (new ExitApp()).execute();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    finish();
+                    dialog.dismiss();
+                }
+            }
+        };
+
+        View.OnClickListener beforeInitListener = new View.OnClickListener() {
+
+            @Override
+            public void onClick(View view) {
+                AlertDialog.Builder builder = basicExitDialiog();
+                builder.show();
+
+            }
+        };
+
+        View.OnClickListener afterInitListener = new View.OnClickListener() {
+
+            @Override
+            public void onClick(View view) {
+                AlertDialog.Builder builder = basicExitDialiog();
+                builder.setNegativeButton("Stop server", exitListener);
+                builder.show();
+
+            }
+        };
+
+        public void create() {
+            quitButton = (Button) findViewById(R.id.quitButton);
+        }
+
+        public void setBeforeInitListener() {
+            quitButton.setOnClickListener(beforeInitListener);
+        }
+
+        public void setAfterInitListener() {
+            quitButton.setOnClickListener(afterInitListener);
+        }
+
+        private AlertDialog.Builder basicExitDialiog() {
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+            builder.setTitle("Quit or exit app?");
+
+            builder.setPositiveButton("Exit client", quitListener);
+            builder.setNeutralButton("Cancel", cancelistener);
+
+            return builder;
+        }
+
+        private class QuitApp extends AsyncTask<Void, Void, Void> {
+            protected Void doInBackground(Void... params) {
+                try {
+                    connectionManager.shutdown(false);
+                    decoderManager.shutdown();
+                    //bitmapManager.shutdown();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                return null;
+            }
+        }
+
+        private class ExitApp extends AsyncTask<Void, Void, Void> {
+            protected Void doInBackground(Void... params) {
+                try {
+                    connectionManager.shutdown(true);
+                    decoderManager.shutdown();
+                    //bitmapManager.shutdown();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                return null;
+            }
+        }
+    }
+
+
 
     static {
         System.loadLibrary("remote-desktop");

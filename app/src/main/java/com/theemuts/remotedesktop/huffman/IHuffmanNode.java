@@ -11,7 +11,6 @@ public interface IHuffmanNode extends Comparable<IHuffmanNode> {
     short getLength();
     int getIndex() throws InvalidHuffmanCodeException;
     boolean adjacent(IHuffmanNode node);
-    boolean isLonger(IHuffmanNode node);
     IHuffmanNode getLeft() throws InvalidHuffmanCodeException;
     IHuffmanNode getRight() throws InvalidHuffmanCodeException;
     IHuffmanNode move(boolean direction) throws InvalidHuffmanCodeException;

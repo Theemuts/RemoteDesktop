@@ -18,25 +18,25 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Created by thomas on 4-9-16.
  */
 public class ConnectionManager {
     private static final int BUFFER_SIZE = 1200;
+    private static final byte MIN_VERSION = 1;
+    private static final byte MAX_VERSION = 1;
 
     private static ConnectionManager connectionManager = new ConnectionManager();
     private static DecoderManager decoderManager = DecoderManager.getInstance();
 
-    private boolean shutdown = false;
     private MainActivity activity;
 
     private ExecutorService executor;
     private List<Future<?>> tasks;
 
     private ConcurrentLinkedQueue<Integer> ackQueue;
+    private ConcurrentLinkedQueue<UDPMessage> msgQueue;
 
     private DatagramChannel sendChannel = null;
     private DatagramSocket receiveChannel = null;
@@ -44,10 +44,6 @@ public class ConnectionManager {
     private ConnectionInfo connectionInfo;
 
 
-    private ConnectionManager() {
-        ackQueue = new ConcurrentLinkedQueue<>();
-        tasks = new LinkedList<>();
-    }
     public void setMainActivity(MainActivity activity) {
         this.activity = activity;
     }
@@ -57,8 +53,11 @@ public class ConnectionManager {
     }
 
     public void init(ConnectionInfo connectionInfo) throws IOException {
-        shutdown = false;
         this.connectionInfo = connectionInfo;
+
+        ackQueue = new ConcurrentLinkedQueue<>();
+        msgQueue = new ConcurrentLinkedQueue<>();
+        tasks = new LinkedList<>();
 
         executor = Executors.newFixedThreadPool(2);
 
@@ -66,45 +65,98 @@ public class ConnectionManager {
         tasks.add(executor.submit(new SenderTask()));
     }
 
-    public void shutdown() throws InterruptedException {
-        shutdown = true;
-        if(null != executor) {
+    public void shutdown(boolean exit) throws InterruptedException {
+        if (null != msgQueue)
+            msgQueue.clear();
+
+        if (null != sendChannel) {
+            if(exit) {
+                sendExitMessage();
+            } else {
+                sendShutdownMessage();
+
+            }
             stopSender();
+        }
+
+        if (null != receiveChannel)
             stopReceiver();
 
+        if(null != executor) {
             Util.shutdownExecutor(executor, tasks);
             executor = null;
         }
+
+        ackQueue = null;
+        msgQueue = null;
+        tasks = null;
     }
 
-    public void setScreen(int screenId) {
-        ByteBuffer buf = ByteBuffer.allocate(2);
-        buf.put((byte) 5);
-        buf.put((byte) screenId);
-        buf.flip();
+    public void stop() {
+        if (null != msgQueue)
+            msgQueue.clear();
 
+        if (null != sendChannel) {
+            stopSender();
+        }
+
+        if (null != receiveChannel)
+            stopReceiver();
+
+        if(null != executor) {
+            Util.shutdownExecutor(executor, tasks);
+            executor = null;
+        }
+
+        ackQueue = null;
+        msgQueue = null;
+        tasks = null;
+    }
+
+    public void requestScreenInfo() {
+        System.out.println("request screen info");
+        if(null != msgQueue)
+            msgQueue.add(new UDPMessage(UDPMessageType.REQUEST_SCREEN_INFO));
+    }
+
+    public void setScreenAndSegment(int screenId, int segmentId) {
+        if(null != msgQueue) {
+            UDPMessage msg = new UDPMessage(UDPMessageType.REQUEST_VIEW);
+            msg.extendMessage((byte) screenId, (byte) segmentId);
+            msgQueue.add(msg);
+        }
+    }
+
+    public void refreshImage() {
+        if(null != msgQueue)
+            msgQueue.add(new UDPMessage(UDPMessageType.REFRESH));
+    }
+
+    public void closeStream() {
+        if(null != msgQueue) {
+            msgQueue.add(new UDPMessage(UDPMessageType.CLOSE));
+        }
+    }
+
+    public void exitServer() {
+        if(null != msgQueue)
+            msgQueue.add(new UDPMessage(UDPMessageType.EXIT));
+    }
+
+    private void sendShutdownMessage() {
         try {
-            sendChannel.write(buf);
+            sendChannel.write((new UDPMessage(UDPMessageType.CLOSE)).getMessage());
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-        buf.clear();
     }
 
-    public void setSegment(int segmentId) {
-        ByteBuffer buf = ByteBuffer.allocate(2);
-        buf.put((byte) 2);
-        buf.put((byte) segmentId);
-        buf.flip();
-
+    private void sendExitMessage() {
         try {
-            sendChannel.write(buf);
+            sendChannel.write((new UDPMessage(UDPMessageType.EXIT)).getMessage());
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-        buf.clear();
     }
 
     private class ReceiverTask implements Runnable {
@@ -115,9 +167,12 @@ public class ConnectionManager {
             System.out.println("Start receiver thread");
             startReceiver();
 
-            boolean isInterupted = Thread.currentThread().isInterrupted();
-            while(!(shutdown | isInterupted)) {
-                doReceive();
+            while(!Thread.currentThread().isInterrupted()) {
+                try {
+                    doReceive();
+                } catch (NullPointerException e) {
+                    break;
+                }
             }
 
             System.out.println("Kill receiver thread");
@@ -133,43 +188,70 @@ public class ConnectionManager {
             }
         }
 
-
         private void doReceive() {
             Integer packetId;
-            DatagramPacket p;
 
             buffer = new byte[BUFFER_SIZE];
-            p = new DatagramPacket(buffer, BUFFER_SIZE);
+            DatagramPacket p = new DatagramPacket(buffer, BUFFER_SIZE);
 
             try {
                 receiveChannel.receive(p);
-                if (Util.isData(p)) {
-                    packetId = Util.getPacketId(p.getData());
-                    ackQueue.add(packetId);
-                    decoderManager.add(p);
-                } else {
-                    List<ScreenInfo> scr = ScreenInfo.decode(p.getData());
-                    activity.setScreenInfoList(scr);
+
+                switch (Util.getType(p)) {
+                    case HANDSHAKE_REPLY:
+                        handleHandshake(p);
+                        activity.setConnectedConnectButtonListeners();
+                        return;
+                    case SCREEN_INFO:
+                        System.out.println("Screen info");
+                        List<ScreenInfo> scr = ScreenInfo.decode(p);
+                        activity.setScreenInfoList(scr);
+                        activity.setConnectedQuitButtonListeners();
+                        return;
+                    case IMAGE_DATA:
+                        packetId = Util.getPacketId(p.getData());
+                        ackQueue.add(packetId);
+                        decoderManager.add(p);
+                        return;
+                    case DISCONNECT_ACK:
+                        System.out.println("Disonnect.");
+                        activity.setDisconnectedConnectButtonListeners();
+                        stop();
+                        return;
                 }
-            } catch (IOException e) {
-                return;
+            } catch ( NullPointerException e) {
+                throw e;
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
+        private void handleHandshake(DatagramPacket p) {
+            System.out.println("Handle handshake");
+            byte reply = p.getData()[1];
+
+            if (reply == 0) {
+                // TODO: what to do if connection rejected?
+            } else if (reply >= MIN_VERSION && reply <= MAX_VERSION) {
+                requestScreenInfo();
+            } else {
+                // TODO: Protocol version not supported.
+            }
+        }
     }
 
     private class SenderTask implements Runnable {
-        ByteBuffer idsToAck = ByteBuffer.allocate(140);
-
         @Override
         public void run() {
             System.out.println("Sender thread");
             startSender();
 
-            while(!(shutdown | Thread.currentThread().isInterrupted())) {
-                doSend();
+            while(!Thread.currentThread().isInterrupted()) {
+                try {
+                    doSend();
+                } catch (RuntimeException e) {
+                    break;
+                }
             }
 
             System.out.println("Kill sender thread");
@@ -180,10 +262,9 @@ public class ConnectionManager {
                 sendChannel = DatagramChannel.open();
                 sendChannel = sendChannel.connect(new InetSocketAddress(connectionInfo.getIp(), connectionInfo.getServerPort()));
 
-                ByteBuffer buf = ByteBuffer.allocate(1);
-                buf.put((byte) 3);
-                buf.flip();
-                sendChannel.write(buf);
+                UDPMessage handshake = new UDPMessage(UDPMessageType.HANDSHAKE);
+                handshake.extendMessage(MIN_VERSION, MAX_VERSION);
+                sendChannel.write(handshake.getMessage());
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -192,50 +273,48 @@ public class ConnectionManager {
 
         private void doSend() {
             Integer id;
-            byte[] idB = new byte[4];
-            int idV;
             int nIds = 0;
 
             try {
-                idsToAck.clear();
-                // opcode for ack: 0
-                idsToAck.put((byte) 0);
-                // second byte: nIds
-                idsToAck.put((byte) 0);
+                UDPMessage msg = msgQueue.poll();
 
-                while (nIds < 32) {
+                if(msg != null) {
+                    sendChannel.write(msg.getMessage());
+                }
+
+                UDPMessage ackMessage = new UDPMessage(UDPMessageType.ACKNOWLEDGE);
+                ackMessage.extendMessage((byte) 0);
+
+                while (nIds <= 127) {
                     id = ackQueue.poll();
 
                     if (null == id) {
                         break;
                     }
 
-                    idV = id.intValue();
-                    idB[0] = (byte) (idV >> 24);
-                    idB[1] = (byte) (idV >> 16);
-                    idB[2] = (byte) (idV >> 8);
-                    idB[3] = (byte) idV;
+                    ackMessage.extendMessage(
+                            (byte) (id >> 24),
+                            (byte) (id >> 16),
+                            (byte) (id >> 8),
+                            id.byteValue()
+                    );
 
-                    idsToAck.put(idB);
                     nIds++;
                 }
 
                 if (nIds >= 1) {
-                    try {
-                        idsToAck.put(1, (byte) nIds);
-                        idsToAck.flip();
-                        sendChannel.write(idsToAck);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                } else {
-                    try {
-                        Thread.sleep(5);
-                    } catch (InterruptedException e) {
-                       return;
-                    }
+                    ackMessage.changeValue(1, (byte) nIds);
+                    sendChannel.write(ackMessage.getMessage());
+                } else if(msg == null) {
+                    // Only sleep if no messages handled.
+                    Thread.sleep(5);
                 }
-            } catch (Exception e) {
+            } catch (NullPointerException e) {
+                throw e;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                //throw new RuntimeException();
+            }catch (Exception e) {
                 e.printStackTrace();
             }
         }
@@ -243,27 +322,13 @@ public class ConnectionManager {
 
     private void stopSender() {
         try {
-            ByteBuffer buf = ByteBuffer.allocate(1);
-            buf.put((byte) 1);
-            buf.flip();
-
-            try {
-                sendChannel.write(buf);
-            } catch (Exception e) {
-            }
-
-            try {
-                sendChannel.close();
-            } catch(Exception e) {
-                e.printStackTrace();
-            } finally {
-                sendChannel = null;
-            }
-
-            buf.clear();
+            sendChannel.close();
         } catch(Exception e) {
             e.printStackTrace();
+        } finally {
+            sendChannel = null;
         }
+
     }
 
     private void stopReceiver() {
@@ -273,6 +338,67 @@ public class ConnectionManager {
             e.printStackTrace();
         } finally {
             receiveChannel = null;
+        }
+    }
+
+    private class UDPMessage {
+        private ByteBuffer message;
+
+        UDPMessage(UDPMessageType type) {
+            message = ByteBuffer.allocate(type.getBufferSize() + 1).put(type.getId());
+        }
+
+        public void extendMessage(byte... data) {
+            message = message.put(data);
+        }
+
+        public void changeValue(int index, byte data) {
+            message.put(index, data);
+        }
+
+        public ByteBuffer getMessage() {
+            return (ByteBuffer) message.flip();
+        }
+    }
+
+    private enum UDPMessageType {
+        HANDSHAKE((byte) 0, 2),
+
+        REQUEST_SCREEN_INFO((byte) 1),
+        REQUEST_VIEW((byte) 2, 2),
+        REFRESH((byte) 3),
+
+        CLOSE((byte) 4),
+        EXIT((byte) 5),
+
+        LEFT_CLICK((byte) 6, 2),
+        RIGHT_CLICK((byte) 7, 2),
+        DOUBLE_CLICK((byte) 8, 2),
+        DRAG((byte) 9, 4),
+
+        KEYBOARD((byte) 10, 1200),
+
+        ACKNOWLEDGE((byte) 11, 1200);
+
+        private byte id;
+        private int bufferSize;
+
+        UDPMessageType(byte id) {
+            this.id = id;
+            bufferSize = 0;
+        }
+
+        UDPMessageType(byte id, int bufferSize) {
+            this.id = id;
+            this.bufferSize = bufferSize;
+        }
+
+        public byte getId() {
+            return id;
+        }
+
+        public int getBufferSize() {
+            return bufferSize;
         }
     }
 }

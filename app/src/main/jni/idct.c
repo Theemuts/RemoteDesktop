@@ -50,6 +50,8 @@ static short iclip[1024]; /* clipping table */
 
 static short *iclp;
 
+static short is_init = 0;
+
 static short qtable_l[64] = { 16, 11, 10, 16,  24,  40,  51,  61,
                               12, 12, 14, 19,  26,  58,  60,  55,
                               14, 13, 16, 24,  40,  57,  69,  56,
@@ -234,9 +236,12 @@ void idct(jshort* data) {
 
 void init_idct()
 {
-    int i;
+    if(is_init == 0) {
+        is_init = 1;
+        int i;
 
-    iclp = iclip+512;
-    for (i= -512; i<512; i++)
-        iclp[i] = (i<-256) ? -256 : ((i>255) ? 255 : i);
+        iclp = iclip + 512;
+        for (i = -512; i < 512; i++)
+            iclp[i] = (i < -256) ? -256 : ((i > 255) ? 255 : i);
+    }
 }

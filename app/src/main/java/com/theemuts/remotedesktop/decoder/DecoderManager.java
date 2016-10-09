@@ -1,5 +1,7 @@
 package com.theemuts.remotedesktop.decoder;
 
+import android.provider.ContactsContract;
+
 import com.theemuts.remotedesktop.exception.InvalidDataException;
 import com.theemuts.remotedesktop.image.VideoView;
 import com.theemuts.remotedesktop.util.Util;
@@ -21,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 public class DecoderManager {
     private static final int N_DECODERS = 2;
     private static final DecoderManager manager = new DecoderManager();
+
+    private boolean init = false;
 
     /*
      * The DecoderManager maintains a PriorityBlockingQueue to be able to
@@ -59,8 +63,13 @@ public class DecoderManager {
      */
 
     public void init(VideoView view) {
+        System.out.println("Start decoder manager");
         this.view = view;
-        pending = new PriorityBlockingQueue<>(200, new PacketComparator());
+
+        if(!init) {
+            pending = new PriorityBlockingQueue<>(200, new PacketComparator());
+            init = true;
+        }
 
         if (executor == null) {
             executor = Executors.newFixedThreadPool(N_DECODERS);
@@ -72,6 +81,8 @@ public class DecoderManager {
     }
 
     public void shutdown() {
+        System.out.println("Exit decoder manager");
+
         if (null != pending) {
             pending.clear();
             pending = null;
@@ -83,12 +94,17 @@ public class DecoderManager {
         }
     }
 
+    public void clear() {
+        pending.clear();
+    }
+
     /*
      * Add a new packet to the pending queue. These packets are automatically
      * sorted by timestamp and packetID.
      */
     public void add(DatagramPacket packet) {
         pending.add(packet);
+        System.out.println(pending.size());
     }
 
     private class PacketComparator implements Comparator<DatagramPacket> {
@@ -141,17 +157,14 @@ public class DecoderManager {
         public void run() {
             System.out.println("Start decoder thread");
             PacketDecoder decoder = new PacketDecoder();
-            DatagramPacket currentPacket;
 
             while(!Thread.currentThread().isInterrupted()) {
                 try {
-                    currentPacket = pending.take();
-                    try {
-                        view.add(decoder.decode(currentPacket));
-                    } catch (NullPointerException e) {
-                        e.printStackTrace();
-                    }
+                    DatagramPacket p = pending.take();
+                    DecodedPacket decoded = decoder.decode(p);
+                    view.add(decoded);
                 } catch (InterruptedException e) {
+                    System.out.println("Exit decoder by interrupted exception");
                     return;
                 } catch (InvalidDataException e) {
                     e.printStackTrace();

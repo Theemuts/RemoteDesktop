@@ -1,5 +1,6 @@
 package com.theemuts.remotedesktop.util;
 
+import java.net.DatagramPacket;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -21,11 +22,12 @@ public class ScreenInfo {
     }
 
 
-    public static List<ScreenInfo> decode(byte[] data) {
-        int nScreens = data[8];
+    public static List<ScreenInfo> decode(DatagramPacket p) {
+        byte[] data = p.getData();
+        int nScreens = data[9];
         List<ScreenInfo> infoList = new ArrayList<>(nScreens);
 
-        int index = 9;
+        int index = 10;
         int nameLength;
         ByteBuffer buf;
 

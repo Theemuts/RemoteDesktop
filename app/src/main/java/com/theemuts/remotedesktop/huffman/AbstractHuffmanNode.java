@@ -39,10 +39,6 @@ public abstract class AbstractHuffmanNode implements IHuffmanNode {
         return false;
     }
 
-    public boolean isLonger(IHuffmanNode node) {
-        return this.length > node.getLength();
-    }
-
     public int getSize() throws InvalidHuffmanCodeException { throw new InvalidHuffmanCodeException(); }
 
     public int getZeroRun() throws InvalidHuffmanCodeException { throw new InvalidHuffmanCodeException(); }

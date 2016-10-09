@@ -13,13 +13,6 @@ public class HuffmanNode extends AbstractHuffmanNode {
     IHuffmanNode left;
     IHuffmanNode right;
 
-    //public HuffmanNode() {
-    //    this.left = null;
-    //    this.right = null;
-    //    this.value = 0;
-    //    this.length = 0;
-    //}
-
     public HuffmanNode(JPEGHuffmanTable table) {
         // Huffman nodes for iterating over pairs of nodes.
         IHuffmanNode previous;
@@ -27,9 +20,6 @@ public class HuffmanNode extends AbstractHuffmanNode {
 
         // Number of merged nodes this iteration,
         int merged;
-
-        // Index in list of previously merged node
-        int lastMerged;
 
         // Get table lengths and values
         short[] lengths = table.getLengths();
@@ -54,7 +44,6 @@ public class HuffmanNode extends AbstractHuffmanNode {
         while (nodes.size() > 1) {
             // Set merged to 0, lastMerged to -2 to avoid errors
             merged = 0;
-            lastMerged = -2;
             int size = nodes.size();
             processed = new ArrayList<>(size);
 
@@ -71,7 +60,6 @@ public class HuffmanNode extends AbstractHuffmanNode {
 
                     // increase merged counter and update last merged
                     merged++;
-                    lastMerged = i;
                 } else {
                     processed.add(previous);
                     previous = current;
@@ -106,14 +94,7 @@ public class HuffmanNode extends AbstractHuffmanNode {
         length = 0;
     }
 
-    public HuffmanNode(IHuffmanNode left, IHuffmanNode right) {
-        this.left = left;
-        this.right = right;
-        this.value = 0;
-        this.length = 0;
-    }
-
-    public HuffmanNode(IHuffmanNode left, IHuffmanNode right,
+    private HuffmanNode(IHuffmanNode left, IHuffmanNode right,
                        short length, int value) {
         this.left = left;
         this.right = right;
