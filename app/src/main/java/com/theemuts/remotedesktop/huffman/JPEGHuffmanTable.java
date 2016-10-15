@@ -269,7 +269,7 @@ public class JPEGHuffmanTable {
         int encodedValueLength = maybeResult & 0xF;
 
         char value = (char) (buffer >> (63 - huffmanCodeLength - encodedValueLength));
-        value &= (MASK >> (16 - encodedValueLength));
+        value &= DecodeUtil.MASK_START[64 - encodedValueLength];
         value = DecodeUtil.decodeValue((short) value, encodedValueLength);
 
         // ((4 bits 0) | (4 bits encoded length) | (4 bits huff length) | (4 bits zero run) | (16 bits decoded value))

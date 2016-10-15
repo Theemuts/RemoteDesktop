@@ -104,7 +104,6 @@ public class DecoderManager {
      */
     public void add(DatagramPacket packet) {
         pending.add(packet);
-        System.out.println(pending.size());
     }
 
     private class PacketComparator implements Comparator<DatagramPacket> {

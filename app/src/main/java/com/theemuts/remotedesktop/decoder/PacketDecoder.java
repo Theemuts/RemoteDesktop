@@ -94,7 +94,7 @@ public class PacketDecoder {
         long currentInt;
 
         buffer = 0;
-        trailing = 8;
+        trailing = 0;
         inBlockIndex = 0;
 
         for (dataPointer = 2; dataPointer < 4; dataPointer++) {
@@ -102,26 +102,23 @@ public class PacketDecoder {
             longShift = (3 - dataPointer) * 32;
             buffer |= (currentInt << longShift);
         }
-
-        buffer <<= 8;
     }
 
     private void decodeMacroblock() throws InvalidHuffmanCodeException {
-        short index = (short) getBits(10);
+        short index = getIndex();
 
         yCbCrData = new short[769];
         yCbCrData[768] = index;
 
-        for (blockIndex = 0; blockIndex < 4; blockIndex++) {
+        for (blockIndex = 0; blockIndex < 4; blockIndex++)
             decodeBlock();
-        }
 
         alignBuffer();
     }
 
-    private char getBits(int bits) {
-        char returnValue = (char) (buffer >>> (64 - bits));
-        moveBuffer(bits);
+    private short getIndex() {
+        short returnValue = (short) (buffer >>> 54);
+        moveBuffer(10);
         return returnValue;
     }
 
@@ -166,12 +163,10 @@ public class PacketDecoder {
         int totLength = (encodedLength & 0x1F) + 1;
 
         encodedLength >>>= 5 & 0xF;
-
         moveBuffer(totLength);
 
-        if (encodedLength == 0) {
+        if (encodedLength == 0)
             return;
-        }
 
         yCbCrData[192 * blockIndex + 64 * component] = (short) result;
     }
@@ -195,9 +190,8 @@ public class PacketDecoder {
 
             moveBuffer(totLength);
 
-            if (encodedLength == 0) {
+            if (encodedLength == 0)
                 return;
-            }
 
             inBlockIndex += zeroRun;
 
@@ -233,9 +227,8 @@ public class PacketDecoder {
     private void alignBuffer() {
         int modTrailing = trailing & 0x7; // Last three bits is trailing % 8
 
-        if(modTrailing != 0) {
+        if(modTrailing != 0)
             moveBuffer(8 - modTrailing);
-        }
     }
 
     private int[] idctMacroblock(int timestamp) {
