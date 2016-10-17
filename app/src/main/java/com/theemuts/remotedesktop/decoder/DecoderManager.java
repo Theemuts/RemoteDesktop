@@ -95,7 +95,9 @@ public class DecoderManager {
     }
 
     public void clear() {
-        pending.clear();
+        if(pending != null) {
+            pending.clear();
+        }
     }
 
     /*
@@ -154,7 +156,7 @@ public class DecoderManager {
          */
         @Override
         public void run() {
-            System.out.println("Start decoder thread");
+            System.out.println("+++ Start decoder thread");
             PacketDecoder decoder = new PacketDecoder();
 
             while(!Thread.currentThread().isInterrupted()) {
@@ -163,17 +165,17 @@ public class DecoderManager {
                     DecodedPacket decoded = decoder.decode(p);
                     view.add(decoded);
                 } catch (InterruptedException e) {
-                    System.out.println("Exit decoder by interrupted exception");
+                    System.out.println("+++ Exit decoder by interrupted exception");
                     return;
                 } catch (InvalidDataException e) {
                     e.printStackTrace();
                 } catch (NullPointerException e) {
-                    System.out.println("Exit decoder by null pointer exception");
+                    System.out.println("+++ Exit decoder by null pointer exception");
                     return;
                 }
             }
 
-            System.out.println("Exit decoder normally");
+            System.out.println("+++ Exit decoder normally");
         }
     }
 }

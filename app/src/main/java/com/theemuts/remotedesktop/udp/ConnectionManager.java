@@ -43,6 +43,8 @@ public class ConnectionManager {
 
     private ConnectionInfo connectionInfo;
 
+    private boolean heartbeat = false;
+    private long lastHeartbeat = 0;
 
     public void setMainActivity(MainActivity activity) {
         this.activity = activity;
@@ -138,6 +140,34 @@ public class ConnectionManager {
         }
     }
 
+    public void heartbeat(boolean heartbeat) {
+        this.heartbeat = heartbeat;
+    }
+
+    public void leftClick(int x, int y) {
+        if(null != msgQueue) {
+            UDPMessage msg = new UDPMessage(UDPMessageType.LEFT_CLICK);
+            msg.extendMessage((byte) (x >> 8), (byte) x, (byte) (y >> 8), (byte) y);
+            msgQueue.add(msg);
+        }
+    }
+
+    public void rightClick(int x, int y) {
+        if(null != msgQueue) {
+            UDPMessage msg = new UDPMessage(UDPMessageType.RIGHT_CLICK);
+            msg.extendMessage((byte) (x >> 8), (byte) x, (byte) (y >> 8), (byte) y);
+            msgQueue.add(msg);
+        }
+    }
+
+    public void doubleClick(int x, int y) {
+        if(null != msgQueue) {
+            UDPMessage msg = new UDPMessage(UDPMessageType.DOUBLE_CLICK);
+            msg.extendMessage((byte) (x >> 8), (byte) x, (byte) (y >> 8), (byte) y);
+            msgQueue.add(msg);
+        }
+    }
+
     public void exitServer() {
         if(null != msgQueue)
             msgQueue.add(new UDPMessage(UDPMessageType.EXIT));
@@ -164,7 +194,7 @@ public class ConnectionManager {
 
         @Override
         public void run() {
-            System.out.println("Start receiver thread");
+            System.out.println("+++ Start receiver thread");
             startReceiver();
 
             while(!Thread.currentThread().isInterrupted()) {
@@ -175,7 +205,7 @@ public class ConnectionManager {
                 }
             }
 
-            System.out.println("Kill receiver thread");
+            System.out.println("+++ Kill receiver thread");
         }
 
         private void startReceiver() {
@@ -203,7 +233,7 @@ public class ConnectionManager {
                         activity.setConnectedConnectButtonListeners();
                         return;
                     case SCREEN_INFO:
-                        System.out.println("Screen info");
+                        System.out.println("+++ Screen info");
                         List<ScreenInfo> scr = ScreenInfo.decode(p);
                         activity.setScreenInfoList(scr);
                         activity.setConnectedQuitButtonListeners();
@@ -214,7 +244,7 @@ public class ConnectionManager {
                         decoderManager.add(p);
                         return;
                     case DISCONNECT_ACK:
-                        System.out.println("Disonnect.");
+                        System.out.println("+++ Disconnect.");
                         activity.setDisconnectedConnectButtonListeners();
                         stop();
                         return;
@@ -227,7 +257,7 @@ public class ConnectionManager {
         }
 
         private void handleHandshake(DatagramPacket p) {
-            System.out.println("Handle handshake");
+            System.out.println("+++ Handle handshake");
             byte reply = p.getData()[1];
 
             if (reply == 0) {
@@ -243,7 +273,7 @@ public class ConnectionManager {
     private class SenderTask implements Runnable {
         @Override
         public void run() {
-            System.out.println("Sender thread");
+            System.out.println("+++ Sender thread");
             startSender();
 
             while(!Thread.currentThread().isInterrupted()) {
@@ -254,7 +284,7 @@ public class ConnectionManager {
                 }
             }
 
-            System.out.println("Kill sender thread");
+            System.out.println("+++ Kill sender thread");
         }
 
         private void startSender() {
@@ -274,6 +304,11 @@ public class ConnectionManager {
         private void doSend() {
             Integer id;
             int nIds = 0;
+
+            if(heartbeat && (System.currentTimeMillis() -lastHeartbeat) > 1000) {
+                msgQueue.add(new UDPMessage(UDPMessageType.HEARTBEAT));
+                lastHeartbeat = System.currentTimeMillis();
+            }
 
             try {
                 UDPMessage msg = msgQueue.poll();
@@ -371,14 +406,16 @@ public class ConnectionManager {
         CLOSE((byte) 4),
         EXIT((byte) 5),
 
-        LEFT_CLICK((byte) 6, 2),
-        RIGHT_CLICK((byte) 7, 2),
-        DOUBLE_CLICK((byte) 8, 2),
-        DRAG((byte) 9, 4),
+        LEFT_CLICK((byte) 6, 4),
+        RIGHT_CLICK((byte) 7, 4),
+        DOUBLE_CLICK((byte) 8, 4),
+        DRAG((byte) 9, 8),
 
         KEYBOARD((byte) 10, 1200),
 
-        ACKNOWLEDGE((byte) 11, 1200);
+        ACKNOWLEDGE((byte) 11, 1200),
+        HEARTBEAT((byte) 12);
+
 
         private byte id;
         private int bufferSize;

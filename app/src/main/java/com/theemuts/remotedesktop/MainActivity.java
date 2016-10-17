@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.text.InputType;
@@ -19,6 +20,7 @@ import com.google.android.gms.appindexing.AppIndex;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.theemuts.remotedesktop.decoder.DecoderManager;
 import com.theemuts.remotedesktop.image.VideoView;
+import com.theemuts.remotedesktop.touch.TouchEventSequence;
 import com.theemuts.remotedesktop.udp.ConnectionManager;
 import com.theemuts.remotedesktop.util.ConnectionInfo;
 import com.theemuts.remotedesktop.util.ScreenInfo;
@@ -35,24 +37,26 @@ public class MainActivity extends AppCompatActivity {
     private static final ConnectionManager connectionManager = ConnectionManager.getInstance();
     private static final DecoderManager decoderManager = DecoderManager.getInstance();
 
-    EditText input;
+    private EditText input;
 
-    int currentScreen = 0;
-    VideoView videoView;
+    private int currentScreen = 0;
+    private VideoView videoView;
 
-    SetScreenButton setScreenButton;
-    SetSegmentButton setSegmentButton;
-    RefreshButton refreshButton;
-    KeyboardButton keyboardButton;
+    private SetScreenButton setScreenButton;
+    private SetSegmentButton setSegmentButton;
+    private RefreshButton refreshButton;
+    private KeyboardButton keyboardButton;
 
-    QuitButton quitButton = new QuitButton();
-    ConnectButton connectButton = new ConnectButton();
+    private QuitButton quitButton = new QuitButton();
+    private ConnectButton connectButton = new ConnectButton();
 
     private final ReentrantLock screenInfoReplyLock = new ReentrantLock();
 
     private final Condition screenInfoExists = screenInfoReplyLock.newCondition();
 
     final static List<ScreenInfo> screenInfoList = new ArrayList<>(12);
+
+    private CountDownTimer heartbeatTimer;
 
     /**
      * ATTENTION: This was auto-generated to implement the App Indexing API.
@@ -99,6 +103,7 @@ public class MainActivity extends AppCompatActivity {
 
     public void setConnectedConnectButtonListeners() {
         connectButton.setAfterConnectListener();
+        connectionManager.heartbeat(true);
     }
 
     public void setDisconnectedConnectButtonListeners() {
@@ -107,52 +112,23 @@ public class MainActivity extends AppCompatActivity {
         connectButton.setBeforeConnectListener();
     }
 
-    private String getAction(int act) {
-        String action;
-
-        switch(act) {
-            case MotionEvent.ACTION_DOWN:
-                action = "DOWN";
-                break;
-            case MotionEvent.ACTION_UP:
-                action = "UP";
-                break;
-            case MotionEvent.ACTION_POINTER_DOWN:
-                action = "POINTER DOWN";
-                break;
-            case MotionEvent.ACTION_POINTER_UP:
-                action = "POINTER UP";
-                break;
-            case MotionEvent.ACTION_MOVE:
-                action = "MOVE";
-                break;
-            default:
-                action = "?";
-                break;
-        }
-
-        return action;
-    }
+    private TouchEventSequence sequence;
 
     @Override
     public void onStart() {
         super.onStart();
 
+        sequence = new TouchEventSequence(videoView);
+
         videoView.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                StringBuilder b = new StringBuilder();
-                b.append(getAction(event.getActionMasked()));
-                b.append(": (");
-                b.append(event.getX());
-                b.append(", ");
-                b.append(event.getY());
-                b.append(")");
-                System.out.println(b.toString());
-
+                sequence.add(event);
                 return true;
             }
         });
+
+        videoView.restartHandler();
 
         connectionManager.setMainActivity(this);
 
@@ -199,6 +175,15 @@ public class MainActivity extends AppCompatActivity {
     public void onStop() {
         super.onStop();
 
+        try {
+            (new StopStream()).execute().get();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            decoderManager.clear();
+            videoView.shutdown();
+        }
+
         // ATTENTION: This was auto-generated to implement the App Indexing API.
         // See https://g.co/AppIndexing/AndroidStudio for more information.
         Action viewAction = Action.newAction(
@@ -215,8 +200,6 @@ public class MainActivity extends AppCompatActivity {
         client.disconnect();
     }
 
-
-
     private class InitUDPAndDecoders extends AsyncTask<ConnectionInfo, Void, Integer> {
         protected Integer doInBackground(ConnectionInfo... params) {
             try {
@@ -230,6 +213,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
     }
+
     private class Refresh extends AsyncTask<Void, Void, Void> {
         protected Void doInBackground(Void... params) {
             connectionManager.refreshImage();
@@ -238,7 +222,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int screenNumber;
-
 
     private class SetScreenAndSegment extends AsyncTask<Integer, Void, Void> {
         protected Void doInBackground(Integer... params) {
@@ -273,8 +256,7 @@ public class MainActivity extends AppCompatActivity {
                     e.printStackTrace();
                 } finally {
                     decoderManager.clear();
-                    videoView.restartHandler();
-                    videoView.reset();
+                    videoView.shutdown();
                 }
 
             }
@@ -413,13 +395,6 @@ public class MainActivity extends AppCompatActivity {
                    .setItems(segments, segmentListener)
                    .create()
                    .show();
-        }
-
-        private class StopStream extends AsyncTask<Void, Void, Void> {
-            protected Void doInBackground(Void... params) {
-                connectionManager.closeStream();
-                return null;
-            }
         }
     }
 
@@ -681,7 +656,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
+    private class StopStream extends AsyncTask<Void, Void, Void> {
+        protected Void doInBackground(Void... params) {
+            connectionManager.closeStream();
+            return null;
+        }
+    }
 
     static {
         System.loadLibrary("remote-desktop");

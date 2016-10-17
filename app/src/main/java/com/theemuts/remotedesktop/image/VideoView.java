@@ -19,6 +19,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Created by thomas on 21-9-16.
@@ -37,6 +39,12 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
 
     private SurfaceHolder holder;
     private Bitmap bmp;
+
+    private Lock zoomLock = new ReentrantLock();
+    private volatile boolean zoomedIn = false;
+    public volatile int zoomX = 0;
+    public volatile int zoomY = 0;
+
 
     private BitmapHandler handler;
     private Future<?> handlerTask;
@@ -70,22 +78,65 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
         init();
     }
 
+    public int[] setZoom(int x, int y) {
+        zoomLock.lock();
+
+        try {
+            if(x >= 0 && y >= 0){
+                zoomedIn = true;
+
+                zoomX = x - (WIDTH / 8);
+                zoomX = zoomX < 0 ? 0 : zoomX;
+                zoomX = zoomX + WIDTH / 4 > WIDTH? 3*WIDTH/4 : zoomX;
+
+                zoomY = y - HEIGHT / 8;
+                zoomY = zoomY < 0 ? 0 : zoomY;
+                zoomY = zoomY + HEIGHT / 4 > HEIGHT ? 3*HEIGHT/4 : zoomY;
+            } else {
+                zoomedIn = false;
+                zoomX = 0;
+                zoomY = 0;
+            }
+        } finally {
+            zoomLock.unlock();
+        }
+
+        surfaceChanged(holder, PixelFormat.RGBA_8888, WIDTH, HEIGHT);
+
+        return new int[] { zoomX, zoomY };
+    }
+
     public void add(DecodedPacket p) {
         handler.add(p);
     }
 
-    public void restartHandler() {
+    public void shutdown() {
+        System.out.println("+++ Shutdown video handler");
         shutdown = true;
-
         Util.shutdownExecutor(executor, handlerTask);
-
         shutdown = false;
+    }
+
+    public void restartHandler() {
+        System.out.println("+++ Restart video handler");
+        shutdown();
+        for (int i = 0; i < PIXELS/256; i++) {
+            data[i] = 0xFFFFFFFF;
+            currentVersion[i] = -1;
+        }
+
+        for (int i = PIXELS/256; i < PIXELS; i++) {
+            data[i] = i*8;
+        }
+
+        bmp.setPixels(data, 0, WIDTH, 0, 0, WIDTH, HEIGHT);
         executor = Executors.newSingleThreadExecutor();
         handlerTask = executor.submit(new BitmapHandler());
     }
 
     // Init video view
     private void init() {
+        System.out.println("+++ Init video handler");
         holder = getHolder();
         holder.addCallback(this);
 
@@ -102,7 +153,6 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
         }
 
         bmp.setPixels(data, 0, WIDTH, 0, 0, WIDTH, HEIGHT);
-        handlerTask = executor.submit(new BitmapHandler());
     }
 
     public void reset() {
@@ -157,12 +207,24 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
 
     protected void drawSomething(Canvas canvas) {
         if(canvas != null) {
+            Rect src;
+
             int canvasHeight = canvas.getHeight();
             int delta = (canvasHeight - 2 * HEIGHT)/2;
 
-            Rect src = new Rect(0, 0, WIDTH, HEIGHT);
-            Rect dest = new Rect(0, delta, CANVAS_WIDTH, 736 + delta);
+            zoomLock.lock();
 
+            try {
+                if (zoomedIn) {
+                    src = new Rect(zoomX, zoomY, zoomX + WIDTH / 4, zoomY + HEIGHT / 4);
+                } else {
+                    src = new Rect(0, 0, WIDTH, HEIGHT);
+                }
+            } finally {
+                zoomLock.unlock();
+            }
+
+            Rect dest = new Rect(0, delta, CANVAS_WIDTH, 736 + delta);
             canvas.drawBitmap(bmp, src, dest, null);
         }
     }
@@ -180,7 +242,7 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
 
         @Override
         public void run() {
-            System.out.println("Start bmp handler");
+            System.out.println("+++ Start bmp handler");
             handler = this;
             newDataQueue = new ConcurrentLinkedQueue<>();
             lastRender = System.currentTimeMillis();
@@ -222,7 +284,7 @@ public class VideoView extends SurfaceView implements SurfaceHolder.Callback {
                  }
              }
 
-            System.out.println("Exit bmp handler");
+            System.out.println("+++ Exit bmp handler");
         }
 
         public void add(DecodedPacket p) {
