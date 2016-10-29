@@ -168,6 +168,15 @@ public class ConnectionManager {
         }
     }
 
+    public void drag(int x1, int y1, int screen1, int segment1, int x2, int y2, int screen2, int segment2) {
+        if(null != msgQueue) {
+            UDPMessage msg = new UDPMessage(UDPMessageType.DRAG);
+            msg.extendMessage((byte) (x1 >> 8), (byte) x1, (byte) (y1 >> 8), (byte) y1, (byte) screen1, (byte) segment1,
+                    (byte) (x2 >> 8), (byte) x2, (byte) (y2 >> 8), (byte) y2, (byte) screen2, (byte) segment2);
+            msgQueue.add(msg);
+        }
+    }
+
     public void exitServer() {
         if(null != msgQueue)
             msgQueue.add(new UDPMessage(UDPMessageType.EXIT));
@@ -409,7 +418,7 @@ public class ConnectionManager {
         LEFT_CLICK((byte) 6, 4),
         RIGHT_CLICK((byte) 7, 4),
         DOUBLE_CLICK((byte) 8, 4),
-        DRAG((byte) 9, 8),
+        DRAG((byte) 9, 12),
 
         KEYBOARD((byte) 10, 1200),
 

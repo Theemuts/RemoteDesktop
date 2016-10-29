@@ -1,4 +1,4 @@
-package com.theemuts.remotedesktop.touch.double_location;
+package com.theemuts.remotedesktop.touch.single_pointer.double_location;
 
 import com.theemuts.remotedesktop.touch.TouchInterface;
 

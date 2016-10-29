@@ -40,6 +40,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText input;
 
     private int currentScreen = 0;
+
     private VideoView videoView;
 
     private SetScreenButton setScreenButton;
@@ -55,8 +56,6 @@ public class MainActivity extends AppCompatActivity {
     private final Condition screenInfoExists = screenInfoReplyLock.newCondition();
 
     final static List<ScreenInfo> screenInfoList = new ArrayList<>(12);
-
-    private CountDownTimer heartbeatTimer;
 
     /**
      * ATTENTION: This was auto-generated to implement the App Indexing API.
@@ -83,6 +82,7 @@ public class MainActivity extends AppCompatActivity {
 
     public void setScreenInfoList(List<ScreenInfo> newInfo) {
         screenInfoReplyLock.lock();
+        sequence.setScreenInfoList(newInfo);
 
         try {
             screenInfoList.clear();
@@ -119,6 +119,7 @@ public class MainActivity extends AppCompatActivity {
         super.onStart();
 
         sequence = new TouchEventSequence(videoView);
+        sequence.setMainActivity(this);
 
         videoView.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -226,14 +227,17 @@ public class MainActivity extends AppCompatActivity {
     private class SetScreenAndSegment extends AsyncTask<Integer, Void, Void> {
         protected Void doInBackground(Integer... params) {
             connectionManager.setScreenAndSegment(params[0], params[1]);
-
+            sequence.setCurrentView(params[0], params[1]);
             return null;
         }
     }
 
+    public void setScreenAndSegment(int screen, int segment) {
+        (new SetScreenAndSegment()).execute(screen, segment);
+    }
+
     private class ConnectButton {
         Button connectButton;
-
 
         private String mText = "";
 

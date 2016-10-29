@@ -25,6 +25,8 @@
  *
  */
 
+void convert_to_rgb(jshort* block_buff, jint* rgb_buff);
+
  JNIEXPORT void JNICALL Java_com_theemuts_remotedesktop_transform_IDCT_idct
             (JNIEnv* env, jclass thiz, jshortArray dct_macroblocks, jintArray pixels)
     {

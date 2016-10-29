@@ -11,5 +11,6 @@ public enum TouchType {
     DOUBLE_CLICK,
     DRAG,
     CHANGE_SEGMENT,
-    CHANGE_SCREEN;
+    CHANGE_SCREEN,
+    CHANGE_DRAG_MODE;
 }

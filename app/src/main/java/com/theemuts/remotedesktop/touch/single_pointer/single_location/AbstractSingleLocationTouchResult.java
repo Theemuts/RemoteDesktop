@@ -1,4 +1,4 @@
-package com.theemuts.remotedesktop.touch.single_location;
+package com.theemuts.remotedesktop.touch.single_pointer.single_location;
 
 import com.theemuts.remotedesktop.touch.AbstractTouchResult;
 

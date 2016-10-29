@@ -170,7 +170,7 @@ public class DecoderManager {
                 } catch (InvalidDataException e) {
                     e.printStackTrace();
                 } catch (NullPointerException e) {
-                    System.out.println("+++ Exit decoder by null pointer exception");
+                    System.out.println("+++ Exit decoder by null mainPointer exception");
                     return;
                 }
             }

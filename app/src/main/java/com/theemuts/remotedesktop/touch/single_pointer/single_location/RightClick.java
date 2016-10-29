@@ -1,4 +1,4 @@
-package com.theemuts.remotedesktop.touch.single_location;
+package com.theemuts.remotedesktop.touch.single_pointer.single_location;
 
 import com.theemuts.remotedesktop.touch.TouchType;
 
@@ -6,14 +6,14 @@ import com.theemuts.remotedesktop.touch.TouchType;
  * Created by thomas on 16-10-16.
  */
 
-public final class LeftClick
+public final class RightClick
         extends AbstractSingleLocationTouchResult
 {
-    public LeftClick(int x, int y) {
+    public RightClick(int x, int y) {
         super(x, y);
     }
 
     public TouchType getType() {
-        return TouchType.LEFT_CLICK;
+        return TouchType.RIGHT_CLICK;
     }
 }

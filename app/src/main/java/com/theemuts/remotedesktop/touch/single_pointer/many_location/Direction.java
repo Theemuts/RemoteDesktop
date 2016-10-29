@@ -1,4 +1,4 @@
-package com.theemuts.remotedesktop.touch.many_location;
+package com.theemuts.remotedesktop.touch.single_pointer.many_location;
 
 /**
  * Created by thomas on 17-10-16.
